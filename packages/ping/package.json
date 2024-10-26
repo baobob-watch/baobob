@@ -19,6 +19,9 @@
     "type": "git",
     "url": "https://github.com/baobob-watch/baobob.git"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "ISC",
   "files": [
     "docs",

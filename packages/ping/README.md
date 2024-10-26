@@ -2,7 +2,7 @@
 
 A real-time network monitoring tool built with Node.js that allows you to track and visualize ping response times for any IP address or hostname. The application provides a clean web interface with real-time graphs and statistics.
 
-![Ping Monitor Screenshot](../../doc/images/ping-monitor-screenshot.jpg)
+<!-- ![Ping Monitor Screenshot](../../doc/images/ping-monitor-screenshot.jpg) -->
 
 ## Features
 
@@ -26,91 +26,226 @@ A real-time network monitoring tool built with Node.js that allows you to track 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/ping-monitor.git
-cd ping-monitor
+npm i @baobob/ping
 ```
 
-2. Install dependencies:
-```bash
-npm install
-```
+2. Usage:
+```js
 
-3. Create required directories:
-```bash
-mkdir -p logs data public
-```
+const { PingMonitor } = require("@baobab/ping");
+const path = require("path");
+const WebSocket = require("ws");
 
-4. Start the application:
-```bash
-npm start
+async function displayDatabaseStats(db) {
+  try {
+    const stats = await db.get(`
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful,
+                MIN(response_time) as min_time,
+                MAX(response_time) as max_time,
+                AVG(response_time) as avg_time
+            FROM ping_results
+            WHERE ip = '8.8.8.8'
+        `);
+
+    console.log("\n📊 Database Statistics:");
+    console.log("----------------------");
+    console.log(`Total Records: ${stats.total}`);
+    console.log(`Successful Pings: ${stats.successful}`);
+    console.log(`Failed Pings: ${stats.total - stats.successful}`);
+    console.log(`Min Response Time: ${stats.min_time?.toFixed(2) || "N/A"}ms`);
+    console.log(`Max Response Time: ${stats.max_time?.toFixed(2) || "N/A"}ms`);
+    console.log(`Avg Response Time: ${stats.avg_time?.toFixed(2) || "N/A"}ms`);
+    console.log("----------------------");
+
+    // Show last 5 records
+    const lastRecords = await db.all(`
+            SELECT * FROM ping_results 
+            ORDER BY timestamp DESC 
+            LIMIT 5
+        `);
+
+    console.log("\nLast 5 Records:");
+    console.log("----------------------");
+    lastRecords.forEach((record) => {
+      const time = new Date(record.timestamp).toLocaleTimeString();
+      const status = record.success ? "✓" : "✗";
+      const responseTime = record.success
+        ? `${record.response_time}ms`
+        : "Failed";
+      console.log(`[${time}] ${status} ${responseTime}`);
+    });
+    console.log("----------------------\n");
+  } catch (error) {
+    console.error("Error displaying database stats:", error);
+  }
+}
+
+async function testBasic() {
+  let monitor = null;
+  let ws = null;
+  let pingStats = {
+    total: 0,
+    success: 0,
+    failed: 0,
+    min: Infinity,
+    max: -Infinity,
+    avg: 0,
+    sum: 0,
+  };
+
+  try {
+    monitor = new PingMonitor({
+      config: {
+        database: {
+          path: path.join(__dirname, "data"),
+          filename: "basic-test.db",
+        },
+        logging: {
+          dir: path.join(__dirname, "logs"),
+          level: "debug",
+          filename: {
+            error: "basic-error.log",
+            combined: "basic.log",
+          },
+        },
+        server: {
+          port: 3000,
+        },
+      },
+    });
+
+    await monitor.initialize();
+    await monitor.start();
+    console.log("\n🚀 Monitor started");
+    console.log("-------------------");
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    console.log("📡 Connecting to WebSocket...");
+
+    // Create WebSocket connection promise
+    const wsConnected = new Promise((resolve, reject) => {
+      ws = new WebSocket("ws://localhost:3000");
+
+      ws.on("open", () => {
+        console.log("🔌 WebSocket connected\n");
+        ws.send(
+          JSON.stringify({
+            type: "start_ping",
+            ip: "8.8.8.8",
+            interval: 1000,
+          })
+        );
+        resolve();
+      });
+
+      ws.on("message", (data) => {
+        const message = JSON.parse(data.toString());
+        if (message.type === "ping_result") {
+          pingStats.total++;
+
+          const timestamp = new Date(message.timestamp).toLocaleTimeString();
+          if (message.success && message.responseTime !== null) {
+            pingStats.success++;
+            pingStats.sum += message.responseTime;
+            pingStats.min = Math.min(pingStats.min, message.responseTime);
+            pingStats.max = Math.max(pingStats.max, message.responseTime);
+            pingStats.avg = pingStats.sum / pingStats.success;
+            console.log(
+              `[${timestamp}] ✓ Response time: ${message.responseTime.toFixed(
+                2
+              )}ms`
+            );
+          } else {
+            pingStats.failed++;
+            console.log(`[${timestamp}] ✗ Failed to ping ${message.ip}`);
+          }
+
+          // Show stats every 5 pings
+          if (pingStats.total % 5 === 0) {
+            console.log("\n📊 Current Statistics:");
+            console.log(
+              `   Successful: ${pingStats.success}/${pingStats.total}`
+            );
+            console.log(
+              `   Min: ${
+                pingStats.min !== Infinity ? pingStats.min.toFixed(2) : "N/A"
+              }ms`
+            );
+            console.log(
+              `   Max: ${
+                pingStats.max !== -Infinity ? pingStats.max.toFixed(2) : "N/A"
+              }ms`
+            );
+            console.log(`   Avg: ${pingStats.avg.toFixed(2)}ms`);
+            console.log(
+              `   Packet Loss: ${(
+                (pingStats.failed / pingStats.total) *
+                100
+              ).toFixed(1)}%\n`
+            );
+          }
+        }
+      });
+
+      ws.on("error", (error) => {
+        console.error("WebSocket error:", error);
+        reject(error);
+      });
+
+      setTimeout(() => reject(new Error("WebSocket connection timeout")), 5000);
+    });
+
+    await wsConnected;
+
+    // Run for 30 seconds
+    await new Promise((resolve) => setTimeout(resolve, 30000));
+
+    console.log("\n📊 Final Statistics:");
+    console.log("-------------------");
+    console.log(`Total Pings: ${pingStats.total}`);
+    console.log(`Successful: ${pingStats.success}`);
+    console.log(`Failed: ${pingStats.failed}`);
+    console.log(
+      `Min: ${pingStats.min !== Infinity ? pingStats.min.toFixed(2) : "N/A"}ms`
+    );
+    console.log(
+      `Max: ${pingStats.max !== -Infinity ? pingStats.max.toFixed(2) : "N/A"}ms`
+    );
+    console.log(`Avg: ${pingStats.avg.toFixed(2)}ms`);
+    console.log(
+      `Packet Loss: ${((pingStats.failed / pingStats.total) * 100).toFixed(1)}%`
+    );
+    console.log("-------------------");
+
+    // Display database statistics
+    await displayDatabaseStats(monitor.getDatabase());
+  } catch (error) {
+    console.error("✕ Test failed:", error);
+    process.exit(1);
+  } finally {
+    if (ws) {
+      ws.close();
+    }
+    if (monitor) {
+      await monitor.stop();
+    }
+  }
+}
+
+testBasic().catch(console.error);
+
+
 ```
 
 The application will be available at `http://localhost:3000`
 
-## Project Structure
-
-```
-ping-monitor/
-├── src/
-│   ├── config/
-│   │   └── config.js         # Application configuration
-│   ├── db/
-│   │   └── database.js       # Database setup and management
-│   ├── services/
-│   │   └── pingService.js    # Core ping functionality
-│   ├── routes/
-│   │   └── pingRoutes.js     # API routes
-│   ├── validators/
-│   │   └── pingValidator.js  # Input validation
-│   ├── middleware/
-│   │   └── errorHandler.js   # Error handling middleware
-│   ├── utils/
-│   │   └── logger.js         # Logging utility
-│   ├── websocket/
-│   │   └── wsHandler.js      # WebSocket management
-│   └── app.js               # Main application file
-├── public/
-│   └── index.html           # Frontend interface
-├── logs/                    # Application logs
-├── data/                    # SQLite database
-├── package.json
-└── README.md
-```
 
 ## Configuration
 
-The application can be configured through environment variables or the `config.js` file:
-
-```javascript
-{
-    port: process.env.PORT || 3000,
-    dbPath: path.join(__dirname, '../data/ping_monitor.db'),
-    logConfig: {
-        level: process.env.LOG_LEVEL || 'info',
-        // ... other logging options
-    },
-    ping: {
-        minTimeout: 100,
-        maxTimeout: 5000,
-        minPacketSize: 32,
-        maxPacketSize: 65507,
-        minDuration: 1000,
-        maxDuration: 3600000
-    }
-}
-```
-
-## Usage
-
-1. Open your browser and navigate to `http://localhost:3000`
-
-2. Enter the target host details:
-   - IP Address or Hostname (e.g., "8.8.8.8" or "google.com")
-   - Timeout (in milliseconds)
-   - Packet Size (in bytes)
-   - Duration (in milliseconds)
-
-3. Click "Start Monitoring" to begin ping measurements
+> Docs work in progress
 
 ### API Endpoints
 
@@ -130,51 +265,13 @@ POST /api/ping/start
 GET /api/ping/history
 ```
 
-## Development
-
-To run the application in development mode with automatic restart:
-
-```bash
-npm run dev
-```
-
-### Running Tests
-
-```bash
-npm test
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Permission Denied**
-   - Ensure you have permissions to execute ping commands
-   - On Linux/Unix, you might need to run with sudo or set capabilities
-
-2. **Database Errors**
-   - Check if the data directory exists and is writable
-   - Verify SQLite installation
-
-3. **Connection Timeouts**
-   - Verify network connectivity
-   - Check firewall settings
-   - Ensure ICMP traffic is allowed
-
-### Logs
-
 Logs are stored in the `logs` directory:
 - `error.log`: Error messages
 - `combined.log`: All application logs
 
 ## Contributing
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
+1. We are looking for contributors
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
@@ -188,10 +285,10 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Author
 
-Your Name
-- GitHub: [@yourusername](https://github.com/yourusername)
-- Email: your.email@example.com
+innocentwkc
+- GitHub: [@innocentwkc](https://github.com/innocentwkc)
+- Email: hello@innocentwkc.com
 
 ## Support
 
-For support, email your.email@example.com or create an issue in the GitHub repository.
+For support, email hello@innocentwkc.com or create an issue in the GitHub repository.

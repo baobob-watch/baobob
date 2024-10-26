@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ping Monitor</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        /* ... (previous styles) ... */
+        .error-message {
+            color: red;
+            margin: 10px 0;
+        }
+        .success-message {
+            color: green;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="status"></div>
+    <div id="chart"></div>
+    <script>
+        const ws = new WebSocket(`ws://${window.location.host}`);
+        const data = [];
+
+        ws.onopen = () => {
+            console.log('Connected to server');
+            showStatus('Connected to server', 'success');
+        };
+
+        ws.onclose = () => {
+            console.log('Disconnected from server');
+            showStatus('Disconnected from server', 'error');
+        };
+
+        ws.onmessage = (event) => {
+            const message = JSON.parse(event.data);
+            
+            switch(message.type) {
+                case 'ping_result':
+                    handlePingResult(message.data);
+                    break;
+                case 'error':
+                    showStatus(message.message, 'error');
+                    break;
+                case 'info':
+                    showStatus(message.message, 'success');
+                    break;
+            }
+        };
+
+        function handlePingResult(result) {
+            if (result.success) {
+                data.push({
+                    timestamp: new Date(result.timestamp),
+                    value: result.responseTime
+                });
+
+                if (data.length > 60) {
+                    data.shift();
+                }
+
+                updateChart();
+                showStatus(`Response time: ${result.responseTime}ms`, 'success');
+            } else {
+                showStatus(result.error || 'Ping failed', 'error');
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = type === 'error' ? 'error-message' : 'success-message';
+        }
+
+        // D3.js chart setup and update functions...
+        // (include your existing chart code here)
+    </script>
+</body>
+</html>

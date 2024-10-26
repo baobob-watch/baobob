@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ping Monitor</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .control-panel {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #cce5ff;
+            color: #004085;
+            border: 1px solid #b8daff;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .stat-item {
+            padding: 10px;
+            background-color: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+        }
+        .stat-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-top: 5px;
+        }
+        .chart-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .line {
+            fill: none;
+            stroke: #007bff;
+            stroke-width: 2;
+        }
+        .grid line {
+            stroke: #e9ecef;
+            stroke-opacity: 0.7;
+        }
+        .grid path {
+            stroke-width: 0;
+        }
+        .axis-label {
+            font-size: 12px;
+            fill: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Ping Monitor</h1>
+        
+        <div class="control-panel">
+            <form id="pingForm">
+                <div class="form-group">
+                    <label for="ip">IP Address or Hostname:</label>
+                    <input type="text" id="ip" placeholder="e.g., 8.8.8.8 or google.com" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="timeout">Timeout (ms):</label>
+                    <input type="number" id="timeout" value="1000" min="100" max="5000">
+                </div>
+                
+                <div class="form-group">
+                    <label for="packetSize">Packet Size (bytes):</label>
+                    <input type="number" id="packetSize" value="32" min="32" max="65507">
+                </div>
+                
+                <div class="form-group">
+                    <label for="duration">Duration (ms):</label>
+                    <input type="number" id="duration" value="60000" min="1000">
+                </div>
+                
+                <button type="submit">Start Monitoring</button>
+            </form>
+            <div id="status" class="status"></div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-label">Current Response Time</div>
+                <div class="stat-value" id="currentTime">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Average Response Time</div>
+                <div class="stat-value" id="avgTime">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Min Response Time</div>
+                <div class="stat-value" id="minTime">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Max Response Time</div>
+                <div class="stat-value" id="maxTime">-</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div id="chart"></div>
+        </div>
+    </div>
+
+    <script>
+        // D3.js chart setup
+        const margin = {top: 20, right: 20, bottom: 30, left: 50};
+        const width = 960 - margin.left - margin.right;
+        const height = 400 - margin.top - margin.bottom;
+
+        const svg = d3.select("#chart")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Scales
+        const x = d3.scaleTime().range([0, width]);
+        const y = d3.scaleLinear().range([height, 0]);
+
+        // Line generator
+        const line = d3.line()
+            .x(d => x(d.timestamp))
+            .y(d => y(d.responseTime))
+            .defined(d => !isNaN(d.responseTime));
+
+        // Add axes
+        svg.append("g")
+            .attr("class", "x-axis")
+            .attr("transform", `translate(0,${height})`);
+
+        svg.append("g")
+            .attr("class", "y-axis");
+
+        // Add axis labels
+        svg.append("text")
+            .attr("class", "axis-label")
+            .attr("transform", "rotate(-90)")
+            .attr("y", 0 - margin.left)
+            .attr("x", 0 - (height / 2))
+            .attr("dy", "1em")
+            .style("text-anchor", "middle")
+            .text("Response Time (ms)");
+
+        // WebSocket connection
+        const ws = new WebSocket(`ws://${window.location.host}`);
+        const data = [];
+
+        // Status updates
+        const statusDiv = document.getElementById('status');
+        function showStatus(message, isError = false) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${isError ? 'error' : 'success'}`;
+        }
+
+        ws.onopen = () => {
+            console.log('WebSocket connected');
+            showStatus('Connected to server');
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket disconnected');
+            showStatus('Disconnected from server', true);
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            showStatus('Connection error', true);
+        };
+
+        // Add statistics tracking
+        let stats = {
+            current: 0,
+            min: Infinity,
+            max: -Infinity,
+            total: 0,
+            count: 0
+        };
+
+        function updateStats(responseTime) {
+            if (responseTime === null) return;
+            
+            stats.current = responseTime;
+            stats.min = Math.min(stats.min, responseTime);
+            stats.max = Math.max(stats.max, responseTime);
+            stats.total += responseTime;
+            stats.count++;
+
+            document.getElementById('currentTime').textContent = `${responseTime.toFixed(1)} ms`;
+            document.getElementById('avgTime').textContent = `${(stats.total / stats.count).toFixed(1)} ms`;
+            document.getElementById('minTime').textContent = `${stats.min.toFixed(1)} ms`;
+            document.getElementById('maxTime').textContent = `${stats.max.toFixed(1)} ms`;
+        }
+
+        function resetStats() {
+            stats = {
+                current: 0,
+                min: Infinity,
+                max: -Infinity,
+                total: 0,
+                count: 0
+            };
+            ['currentTime', 'avgTime', 'minTime', 'maxTime'].forEach(id => {
+                document.getElementById(id).textContent = '-';
+            });
+        }
+
+        ws.onmessage = (event) => {
+            const message = JSON.parse(event.data);
+            
+            switch(message.type) {
+                case 'ping':
+                    if (message.responseTime !== null) {
+                        const pingData = {
+                            timestamp: new Date(message.timestamp),
+                            responseTime: message.responseTime,
+                            success: message.success
+                        };
+                        
+                        data.push(pingData);
+                        updateStats(message.responseTime);
+
+                        if (data.length > 60) {
+                            data.shift();
+                        }
+
+                        updateChart();
+                        showStatus(`Last ping: ${message.responseTime.toFixed(1)}ms`, 'success');
+                    } else {
+                        showStatus(message.error || 'Request failed', 'error');
+                    }
+                    break;
+
+                case 'info':
+                    showStatus(message.message, 'info');
+                    break;
+
+                case 'error':
+                    showStatus(message.message, 'error');
+                    break;
+            }
+        };
+
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+
+        // Update form submission
+        document.getElementById('pingForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = {
+                ip: document.getElementById('ip').value,
+                timeout: parseInt(document.getElementById('timeout').value),
+                packetSize: parseInt(document.getElementById('packetSize').value),
+                duration: parseInt(document.getElementById('duration').value)
+            };
+
+            try {
+                const response = await fetch('/api/ping/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to start monitoring');
+                }
+
+                showStatus('Monitoring started', 'info');
+                data.length = 0;
+                resetStats();
+                updateChart();
+
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus(error.message, 'error');
+            }
+        });
+
+        // Update the chart function to handle null values
+        function updateChart() {
+            // Filter out null response times
+            const validData = data.filter(d => d.responseTime !== null);
+            
+            if (validData.length === 0) return;
+
+            // Update scales
+            x.domain(d3.extent(validData, d => d.timestamp));
+            y.domain([0, d3.max(validData, d => d.responseTime) * 1.1]); // Add 10% padding
+
+            // Update axes
+            svg.select(".x-axis").call(d3.axisBottom(x));
+            svg.select(".y-axis").call(d3.axisLeft(y));
+
+            // Update line
+            svg.selectAll(".line")
+                .data([validData])
+                .join("path")
+                .attr("class", "line")
+                .attr("d", line);
+        }
+
+        // Form submission
+        document.getElementById('pingForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = {
+                ip: document.getElementById('ip').value,
+                timeout: parseInt(document.getElementById('timeout').value),
+                packetSize: parseInt(document.getElementById('packetSize').value),
+                duration: parseInt(document.getElementById('duration').value)
+            };
+
+            try {
+                const response = await fetch('/api/ping/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to start monitoring');
+                }
+
+                showStatus('Monitoring started');
+                
+                // Clear existing data
+                data.length = 0;
+                updateChart();
+
+            } catch (error) {
+                console.error('Error:', error);
+                showStatus(error.message, true);
+            }
+        });
+
+        // Load historical data on page load
+        async function loadHistoricalData() {
+            try {
+                const response = await fetch('/api/ping/history');
+                if (!response.ok) {
+                    throw new Error('Failed to load historical data');
+                }
+                
+                const historicalData = await response.json();
+                
+                // Convert timestamps to Date objects
+                historicalData.forEach(d => d.timestamp = new Date(d.timestamp));
+                
+                // Update chart with historical data
+                data.push(...historicalData.slice(-60)); // Keep last 60 points
+                updateChart();
+            } catch (error) {
+                console.error('Error loading historical data:', error);
+                showStatus('Error loading historical data', true);
+            }
+        }
+
+        loadHistoricalData();
+    </script>
+</body>
+</html>

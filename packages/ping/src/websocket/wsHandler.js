@@ -1,3 +1,4 @@
+// wsHandler.js
 const WebSocket = require("ws");
 const PingService = require("../services/pingService");
 
@@ -26,53 +27,71 @@ function setupWebSocket({ server, logger, db }) {
   const activeConnections = new Set();
   let activePingSessions = 0;
 
-  // Your existing connection handler
   wss.on("connection", (ws) => {
     logger.info("New WebSocket connection");
     activeConnections.add(ws);
     ws.pingIntervals = new Set();
-    ws.isActive = false; // Track if this connection is doing pings
-    ws.startTime = Date.now(); // Track connection duration
+    ws.isActive = false;
+    ws.startTime = Date.now();
 
     ws.on("message", async (message) => {
       try {
         const data = JSON.parse(message);
         logger.debug("Received WebSocket message:", data);
 
-        if (data.type === "start_ping" && data.ip) {
-          ws.isActive = true;
-          ws.targetIp = data.ip; // Track target IP for status
-          activePingSessions++;
-          logger.debug(`Active ping sessions: ${activePingSessions}`);
+        switch (data.type) {
+          case "start_ping":
+            if (data.ip) {
+              ws.isActive = true;
+              ws.targetIp = data.ip;
+              activePingSessions++;
+              logger.debug(`Active ping sessions: ${activePingSessions}`);
 
-          // Clear existing intervals
-          ws.pingIntervals.forEach((interval) => clearInterval(interval));
-          ws.pingIntervals.clear();
+              // Clear existing intervals
+              ws.pingIntervals.forEach((interval) => clearInterval(interval));
+              ws.pingIntervals.clear();
 
-          const interval = setInterval(async () => {
-            if (!pingService.isShuttingDown) {
-              const result = await pingService.executePing(
-                data.ip,
-                data.packetSize
-              );
+              const interval = setInterval(async () => {
+                if (!pingService.isShuttingDown) {
+                  const result = await pingService.executePing(
+                    data.ip,
+                    data.packetSize
+                  );
 
-              if (ws.readyState === WebSocket.OPEN && result) {
-                ws.send(
-                  JSON.stringify({
-                    type: "ping_result",
-                    ...result,
-                  })
-                );
-                // Update statistics
-                ws.lastPingTime = Date.now();
-                ws.totalPings = (ws.totalPings || 0) + 1;
-                ws.successfulPings =
-                  (ws.successfulPings || 0) + (result.success ? 1 : 0);
-              }
+                  if (ws.readyState === WebSocket.OPEN && result) {
+                    ws.send(
+                      JSON.stringify({
+                        type: "ping_result",
+                        ...result,
+                      })
+                    );
+                    ws.lastPingTime = Date.now();
+                    ws.totalPings = (ws.totalPings || 0) + 1;
+                    ws.successfulPings =
+                      (ws.successfulPings || 0) + (result.success ? 1 : 0);
+                  }
+                }
+              }, data.interval || 1000);
+
+              ws.pingIntervals.add(interval);
             }
-          }, data.interval || 1000);
+            break;
 
-          ws.pingIntervals.add(interval);
+          case "stop_ping":
+            if (ws.isActive) {
+              ws.pingIntervals.forEach((interval) => clearInterval(interval));
+              ws.pingIntervals.clear();
+              activePingSessions--;
+              ws.isActive = false;
+              logger.debug(`Stopped ping session for ${ws.targetIp}`);
+              ws.send(
+                JSON.stringify({
+                  type: "stopped",
+                  message: "Ping session stopped",
+                })
+              );
+            }
+            break;
         }
       } catch (error) {
         if (!pingService.isShuttingDown) {
@@ -89,7 +108,6 @@ function setupWebSocket({ server, logger, db }) {
       }
     });
 
-    // Your existing close handler
     ws.on("close", () => {
       if (ws.isActive) {
         activePingSessions--;
@@ -101,7 +119,6 @@ function setupWebSocket({ server, logger, db }) {
       logger.info("WebSocket connection closed");
     });
 
-    // Your existing error handler
     ws.on("error", (error) => {
       if (!pingService.isShuttingDown) {
         logger.error("WebSocket error:", error);
@@ -109,24 +126,20 @@ function setupWebSocket({ server, logger, db }) {
     });
   });
 
-  // Your existing shutdown method
   wss.shutdown = async () => {
     logger.info("Starting WebSocket server shutdown...");
     logger.info(`Active ping sessions: ${activePingSessions}`);
 
-    // Check if shutdown method exists before calling
+    // Check if shutdown method exists before calling (only call once)
     if (typeof pingService.shutdown === "function") {
       pingService.shutdown();
     } else {
       logger.warn("PingService shutdown method not available");
     }
 
-    pingService.shutdown();
-
     // First, stop all ping intervals
     for (const ws of activeConnections) {
       try {
-        // Notify clients about shutdown
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(
             JSON.stringify({
@@ -145,7 +158,7 @@ function setupWebSocket({ server, logger, db }) {
 
     // Wait for any in-progress ping operations to complete
     let waitAttempts = 0;
-    const maxWaitAttempts = 10; // Maximum 10 seconds wait
+    const maxWaitAttempts = 10;
 
     while (activePingSessions > 0 && waitAttempts < maxWaitAttempts) {
       logger.info(
@@ -166,7 +179,6 @@ function setupWebSocket({ server, logger, db }) {
     await Promise.all(closePromises);
     activeConnections.clear();
 
-    // Finally close the WebSocket server
     return new Promise((resolve) => {
       wss.close(() => {
         logger.info("WebSocket server shut down completely");
@@ -175,7 +187,6 @@ function setupWebSocket({ server, logger, db }) {
     });
   };
 
-  // Add status/health check method
   wss.getStatus = () => {
     const connectionDetails = Array.from(activeConnections).map((ws) => ({
       targetIp: ws.targetIp,

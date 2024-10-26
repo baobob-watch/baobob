@@ -6,7 +6,7 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@baobab/ping": "file:../../baobab-ping-1.0.0.tgz",
+    "@baobab/ping": "file:../baobab-ping-1.0.0.tgz",
     "express": "^4.21.1",
     "joi": "^17.13.3",
     "sqlite": "^5.1.1",

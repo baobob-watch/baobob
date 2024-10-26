@@ -14,6 +14,8 @@
     "link:local": "npm link",
     "clean:test": "rimraf test-data test-logs"
   },
+  "author": "innocentwkc",
+  "license": "ISC",
   "files": [
     "src",
     "public"

@@ -172,94 +172,72 @@
   </head>
   <body>
     <div class="container">
-      <div class="header">
-        <h1>Network Ping Monitor</h1>
-        <div id="global-status"></div>
-      </div>
+        <div class="header">
+            <h1>Network Ping Monitor</h1>
+            <div id="global-status"></div>
+        </div>
 
-      <div class="control-panel">
-        <form id="ping-form">
-          <div class="form-grid">
-            <div class="form-group">
-              <label for="ip">Target Host/IP:</label>
-              <input
-                type="text"
-                id="ip"
-                required
-                placeholder="e.g., 8.8.8.8 or google.com"
-              />
-            </div>
-            <div class="form-group">
-              <label for="name">Session Name:</label>
-              <input
-                type="text"
-                id="name"
-                required
-                placeholder="e.g., Google DNS Monitor"
-              />
-            </div>
-            <div class="form-group">
-              <label for="interval">Ping Interval (ms):</label>
-              <input
-                type="number"
-                id="interval"
-                value="1000"
-                min="100"
-                max="10000"
-              />
-            </div>
-            <div class="form-group">
-              <label for="packetSize">Packet Size (bytes):</label>
-              <input
-                type="number"
-                id="packetSize"
-                value="32"
-                min="32"
-                max="65507"
-              />
-            </div>
-          </div>
-          <button type="submit">Start New Ping Session</button>
-        </form>
-      </div>
+        <div class="control-panel">
+            <form id="ping-form">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="ip">Target Host/IP:</label>
+                        <input type="text" id="ip" required placeholder="e.g., 8.8.8.8 or google.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="name">Session Name:</label>
+                        <input type="text" id="name" required placeholder="e.g., Google DNS Monitor">
+                    </div>
+                    <div class="form-group">
+                        <label for="interval">Ping Interval (ms):</label>
+                        <input type="number" id="interval" value="1000" min="100" max="10000">
+                    </div>
+                    <div class="form-group">
+                        <label for="packetSize">Packet Size (bytes):</label>
+                        <input type="number" id="packetSize" value="32" min="32" max="65507">
+                    </div>
+                </div>
+                <button type="submit">Start New Ping Session</button>
+            </form>
+        </div>
 
-      <div id="sessions-container" class="sessions-container">
-        <!-- Ping sessions will be dynamically added here -->
-      </div>
+        <div id="sessions-container" class="sessions-container">
+            <!-- Sessions will be added here -->
+        </div>
     </div>
 
-    <!-- Template for ping session card -->
+    <!-- Session template -->
     <template id="session-template">
-      <div class="session-card">
-        <div class="session-header">
-          <div class="session-title"></div>
-          <span class="status-badge status-stopped">Stopped</span>
-          <button class="stop-button" style="display: none">Stop</button>
+        <div class="session-card">
+            <div class="session-header">
+                <div class="session-title"></div>
+                <span class="status-badge status-stopped">Stopped</span>
+                <button class="stop-button">Stop</button>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-value" data-stat="current">-</div>
+                    <div class="stat-label">Current (ms)</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" data-stat="min">-</div>
+                    <div class="stat-label">Min (ms)</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" data-stat="max">-</div>
+                    <div class="stat-label">Max (ms)</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" data-stat="avg">-</div>
+                    <div class="stat-label">Avg (ms)</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" data-stat="loss">0%</div>
+                    <div class="stat-label">Packet Loss</div>
+                </div>
+            </div>
+            <div class="chart-container"></div>
         </div>
-        <div class="stats-grid">
-          <div class="stat-item">
-            <div class="stat-value" data-stat="current">-</div>
-            <div class="stat-label">Current (ms)</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value" data-stat="min">-</div>
-            <div class="stat-label">Min (ms)</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value" data-stat="max">-</div>
-            <div class="stat-label">Max (ms)</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value" data-stat="avg">-</div>
-            <div class="stat-label">Avg (ms)</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value" data-stat="loss">0%</div>
-            <div class="stat-label">Packet Loss</div>
-          </div>
-        </div>
-        <div class="chart-container"></div>
-      </div>
     </template>
   </body>
   <script>
@@ -273,116 +251,82 @@
       },
     };
 
-		// Session DOM management functions
+		// Update the session management code
 		function createSessionElement(sessionId, name) {
-				// Clone the template
-				const template = document.getElementById('session-template');
-				const element = template.content.cloneNode(true).firstElementChild;
-				element.id = `session-${sessionId}`;
-				
-				// Set session title
-				element.querySelector('.session-title').textContent = name;
-				
-				// Setup stop button
-				const stopButton = element.querySelector('.stop-button');
-				stopButton.addEventListener('click', () => stopSession(sessionId));
-				
-				return element;
+			const template = document.getElementById('session-template');
+			const element = template.content.cloneNode(true).firstElementChild;
+			element.id = `session-${sessionId}`;
+			
+			// Set session title
+			element.querySelector('.session-title').textContent = name;
+			
+			// Setup stop button
+			const stopButton = element.querySelector('.stop-button');
+			stopButton.addEventListener('click', function(e) {
+				e.preventDefault();
+				e.stopPropagation();
+				stopSession(sessionId);
+			});
+			
+			return element;
 		}
 
-    // Core session management functions
-    function createSession(config) {
-      const sessionId = Date.now().toString();
-      const sessionData = {
-        id: sessionId,
-        config,
-        stats: {
-          total: 0,
-          successful: 0,
-          failed: 0,
-          min: Infinity,
-          max: -Infinity,
-          avg: 0,
-          lastValue: null,
-        },
-        data: [],
-        ws: null,
-        chart: null,
-        isRunning: false,
-      };
+    // Update createSession WebSocket handling
+		function createSession(config) {
+				const sessionId = Date.now().toString();
+				const sessionData = {
+						id: sessionId,
+						config,
+						stats: {
+								total: 0,
+								successful: 0,
+								failed: 0,
+								min: Infinity,
+								max: -Infinity,
+								avg: 0,
+								lastValue: null
+						},
+						data: [],
+						ws: null,
+						chart: null,
+						isRunning: false
+				};
 
-      // Create DOM element
-      const sessionElement = createSessionElement(sessionId, config.name);
-      sessionData.element = sessionElement;
+				// Create DOM element first
+				const sessionElement = createSessionElement(sessionId, config.name);
+				sessionData.element = sessionElement;
+				
+				// Add to DOM before creating chart
+				document.getElementById('sessions-container').prepend(sessionElement);
+				
+				// Initialize chart
+				initializeChart(sessionId);
 
-      // Connect to WebSocket
-      try {
-        // Use the correct WebSocket URL
-        const wsProtocol =
-          window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${wsProtocol}//${window.location.hostname}:3000`;
+				// Now set up WebSocket
+				const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+				const wsUrl = `${wsProtocol}//${window.location.hostname}:3000`;
+				
+				const ws = new WebSocket(wsUrl);
+				
+				ws.onopen = () => {
+						console.log(`WebSocket connected for session ${sessionId}`);
+						sessionData.isRunning = true;
+						updateSessionStatus(sessionId, 'active');
+						
+						ws.send(JSON.stringify({
+								type: 'start_ping',
+								...config
+						}));
+				};
 
-        const ws = new WebSocket(wsUrl);
+				// ... rest of WebSocket setup ...
 
-        ws.onopen = () => {
-          console.log(`WebSocket connected for session ${sessionId}`);
-          sessionData.isRunning = true;
-          updateSessionStatus(sessionId, "active");
-					sessionElement.querySelector('.stop-button').style.display = 'block';
+				sessionData.ws = ws;
+				state.sessions.set(sessionId, sessionData);
+				
+				return sessionData;
+		}
 
-          // Start ping
-          ws.send(
-            JSON.stringify({
-              type: "start_ping",
-              ip: config.ip,
-              interval: config.interval,
-              packetSize: config.packetSize,
-            })
-          );
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const message = JSON.parse(event.data);
-            if (message.type === "ping_result") {
-              handlePingResult(sessionId, message);
-            } else if (message.type === "error") {
-              console.error("Ping error:", message.message);
-              updateSessionStatus(sessionId, "error");
-            }
-          } catch (error) {
-            console.error("Error processing message:", error);
-          }
-        };
-
-        ws.onclose = () => {
-          console.log(`WebSocket closed for session ${sessionId}`);
-          handleSessionStop(sessionId);
-        };
-
-        ws.onerror = (error) => {
-          console.error(`WebSocket error for session ${sessionId}:`, error);
-          handleSessionStop(sessionId);
-          updateSessionStatus(sessionId, "error");
-        };
-
-        sessionData.ws = ws;
-      } catch (error) {
-        console.error("Failed to create WebSocket connection:", error);
-        updateSessionStatus(sessionId, "error");
-      }
-
-      // Store session data
-      state.sessions.set(sessionId, sessionData);
-
-      // Add to DOM
-      document.getElementById("sessions-container").prepend(sessionElement);
-
-      // Initialize chart
-      initializeChart(sessionId);
-
-      return sessionData;
-    }
 
 		function removeSession(sessionId) {
 			const session = state.sessions.get(sessionId);
@@ -445,14 +389,39 @@
     }
 
     function stopSession(sessionId) {
-      const session = state.sessions.get(sessionId);
-      if (!session) return;
+				console.log('Stopping session:', sessionId);
+				const session = state.sessions.get(sessionId);
+				if (!session) return;
 
-      if (session.ws) {
-        session.ws.close();
-      }
-      handleSessionStop(sessionId);
-    }
+				try {
+						// Clean up chart before WebSocket
+						if (session.chart) {
+								const chartContainer = session.element.querySelector('.chart-container');
+								chartContainer.innerHTML = '';
+								session.chart = null;
+						}
+
+						// Send stop message and close WebSocket
+						if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+								session.ws.send(JSON.stringify({ type: 'stop_ping' }));
+								session.ws.close();
+						}
+						session.ws = null;
+
+						// Update status
+						session.isRunning = false;
+						updateSessionStatus(sessionId, 'stopped');
+
+						// Update global stats
+						if (state.globalStats.activeSessions > 0) {
+								state.globalStats.activeSessions--;
+						}
+						updateGlobalStats();
+
+				} catch (error) {
+						console.error('Error stopping session:', error);
+				}
+		}
 
 		// / Session status management
 function updateSessionStatus(sessionId, status) {

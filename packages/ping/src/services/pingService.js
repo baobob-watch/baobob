@@ -6,10 +6,18 @@ class PingService {
   constructor(db, logger) {
     this.db = db;
     this.logger = logger;
+    this.isShuttingDown = false;
   }
 
   async executePing(host, packetSize = 32) {
     try {
+      if (this.isShuttingDown) {
+        this.logger.warn(
+          "Ping service is shutting down, skipping ping execution"
+        );
+        return null;
+      }
+
       const command =
         process.platform === "win32"
           ? `ping -n 1 -l ${packetSize} ${host}`
@@ -26,12 +34,14 @@ class PingService {
         success: responseTime !== null,
       };
 
-      // Save result to database
-      await this.savePingResult(result);
+      if (!this.isShuttingDown) {
+        await this.savePingResult(result);
+      }
 
       return result;
     } catch (error) {
-      const result = {
+      this.logger.error("Ping execution error:", error);
+      return {
         timestamp: new Date(),
         ip: host,
         responseTime: null,
@@ -39,11 +49,6 @@ class PingService {
         success: false,
         error: error.message,
       };
-
-      // Save failed result to database
-      await this.savePingResult(result);
-
-      return result;
     }
   }
 
@@ -63,6 +68,13 @@ class PingService {
 
   async savePingResult(result) {
     try {
+      if (this.isShuttingDown) return;
+
+      // Check if database is still open
+      if (!this.db || this.db.open === false) {
+        throw new Error("Database connection is closed");
+      }
+
       await this.db.run(
         `
                 INSERT INTO ping_results (
@@ -82,11 +94,25 @@ class PingService {
         ]
       );
 
-      this.logger.debug("Ping result saved to database:", result);
+      this.logger.debug("Ping result saved:", result);
     } catch (error) {
       this.logger.error("Error saving ping result:", error);
       throw error;
     }
+  }
+
+  // Add the shutdown method
+  shutdown() {
+    this.logger.info("Shutting down ping service");
+    this.isShuttingDown = true;
+  }
+
+  // Optional: Add method to check service status
+  getStatus() {
+    return {
+      isShuttingDown: this.isShuttingDown,
+      dbConnected: this.db && this.db.open === true,
+    };
   }
 
   async getHistory(options = {}) {

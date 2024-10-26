@@ -149,12 +149,13 @@ class PingMonitor {
 
     try {
       this.server = http.createServer(this.app);
-      // Pass both logger and database to setupWebSocket
-      this.wss = setupWebSocket(
-        { server: this.server },
-        this.db, // Pass database
-        this.logger // Pass logger
-      );
+
+      // Pass all required dependencies
+      this.wss = setupWebSocket({
+        server: this.server,
+        logger: this.logger, // Pass logger here
+        db: this.db,
+      });
 
       this.server.listen(this.config.server.port, () => {
         this.logger.info(
@@ -169,18 +170,34 @@ class PingMonitor {
 
   async stop() {
     try {
-      if (this.wss) {
-        this.wss.close();
-      }
+      this.logger.info("Initiating ping monitor shutdown sequence...");
+
+      // 1. Stop accepting new connections/requests
       if (this.server) {
         this.server.close();
+        this.logger.info("Stopped accepting new connections");
       }
+
+      // 2. Shutdown WebSocket server and wait for active pings to complete
+      if (this.wss) {
+        this.logger.info("Shutting down WebSocket server...");
+        await this.wss.shutdown();
+        this.logger.info("WebSocket server shutdown complete");
+      }
+
+      // 3. Wait a bit more for any last database operations
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // 4. Close database connection
       if (this.db) {
+        this.logger.info("Closing database connection...");
         await this.db.close();
+        this.logger.info("Database connection closed");
       }
-      this.logger.info("Ping monitor stopped");
+
+      this.logger.info("Ping monitor stopped successfully");
     } catch (error) {
-      this.logger.error("Error stopping ping monitor:", error);
+      this.logger.error("Error during shutdown:", error);
       throw error;
     }
   }

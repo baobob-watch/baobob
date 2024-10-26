@@ -1,6 +1,6 @@
 {
   "name": "@baobob/ping",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Real-time ping monitoring module for Node.js applications",
   "main": "src/index.js",
   "scripts": {
@@ -38,5 +38,5 @@
   "publishConfig": {
     "access": "public"
   },
-  "license": "ISC"
+  "license": "MIT"
 }

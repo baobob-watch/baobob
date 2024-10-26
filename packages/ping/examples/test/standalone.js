@@ -2,28 +2,55 @@ const { PingMonitor } = require("@baobab/ping");
 const path = require("path");
 const WebSocket = require("ws");
 
-async function testBasic() {
-  const monitor = new PingMonitor({
-    config: {
-      database: {
-        path: path.join(__dirname, "data"),
-        filename: "basic-test.db",
-      },
-      logging: {
-        dir: path.join(__dirname, "logs"),
-        level: "debug",
-        filename: {
-          error: "basic-error.log",
-          combined: "basic.log",
-        },
-      },
-      server: {
-        port: 3000,
-      },
-    },
-  });
+async function displayDatabaseStats(db) {
+  try {
+    const stats = await db.get(`
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful,
+                MIN(response_time) as min_time,
+                MAX(response_time) as max_time,
+                AVG(response_time) as avg_time
+            FROM ping_results
+            WHERE ip = '8.8.8.8'
+        `);
 
-  let ws;
+    console.log("\n📊 Database Statistics:");
+    console.log("----------------------");
+    console.log(`Total Records: ${stats.total}`);
+    console.log(`Successful Pings: ${stats.successful}`);
+    console.log(`Failed Pings: ${stats.total - stats.successful}`);
+    console.log(`Min Response Time: ${stats.min_time?.toFixed(2) || "N/A"}ms`);
+    console.log(`Max Response Time: ${stats.max_time?.toFixed(2) || "N/A"}ms`);
+    console.log(`Avg Response Time: ${stats.avg_time?.toFixed(2) || "N/A"}ms`);
+    console.log("----------------------");
+
+    // Show last 5 records
+    const lastRecords = await db.all(`
+            SELECT * FROM ping_results 
+            ORDER BY timestamp DESC 
+            LIMIT 5
+        `);
+
+    console.log("\nLast 5 Records:");
+    console.log("----------------------");
+    lastRecords.forEach((record) => {
+      const time = new Date(record.timestamp).toLocaleTimeString();
+      const status = record.success ? "✓" : "✗";
+      const responseTime = record.success
+        ? `${record.response_time}ms`
+        : "Failed";
+      console.log(`[${time}] ${status} ${responseTime}`);
+    });
+    console.log("----------------------\n");
+  } catch (error) {
+    console.error("Error displaying database stats:", error);
+  }
+}
+
+async function testBasic() {
+  let monitor = null;
+  let ws = null;
   let pingStats = {
     total: 0,
     success: 0,
@@ -35,6 +62,26 @@ async function testBasic() {
   };
 
   try {
+    monitor = new PingMonitor({
+      config: {
+        database: {
+          path: path.join(__dirname, "data"),
+          filename: "basic-test.db",
+        },
+        logging: {
+          dir: path.join(__dirname, "logs"),
+          level: "debug",
+          filename: {
+            error: "basic-error.log",
+            combined: "basic.log",
+          },
+        },
+        server: {
+          port: 3000,
+        },
+      },
+    });
+
     await monitor.initialize();
     await monitor.start();
     console.log("\n🚀 Monitor started");
@@ -53,7 +100,7 @@ async function testBasic() {
         ws.send(
           JSON.stringify({
             type: "start_ping",
-            ip: "192.168.1.1",
+            ip: "8.8.8.8",
             interval: 1000,
           })
         );
@@ -138,6 +185,9 @@ async function testBasic() {
       `Packet Loss: ${((pingStats.failed / pingStats.total) * 100).toFixed(1)}%`
     );
     console.log("-------------------");
+
+    // Display database statistics
+    await displayDatabaseStats(monitor.getDatabase());
   } catch (error) {
     console.error("✕ Test failed:", error);
     process.exit(1);
@@ -145,7 +195,9 @@ async function testBasic() {
     if (ws) {
       ws.close();
     }
-    await monitor.stop();
+    if (monitor) {
+      await monitor.stop();
+    }
   }
 }
 

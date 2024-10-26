@@ -1,52 +1,13 @@
 const WebSocket = require("ws");
-const { exec } = require("child_process");
-const util = require("util");
-const execAsync = util.promisify(exec);
+const PingService = require("../services/pingService");
 
-async function executePing(host) {
-  try {
-    const command =
-      process.platform === "win32" ? `ping -n 1 ${host}` : `ping -c 1 ${host}`;
-
-    const { stdout } = await execAsync(command);
-    const time = parsePingOutput(stdout);
-
-    return {
-      success: true,
-      responseTime: time,
-      timestamp: new Date(),
-    };
-  } catch (error) {
-    return {
-      success: false,
-      responseTime: null,
-      timestamp: new Date(),
-      error: error.message,
-    };
-  }
-}
-
-function parsePingOutput(output) {
-  try {
-    if (process.platform === "win32") {
-      const match = output.match(/time[=<](\d+)ms/);
-      return match ? parseFloat(match[1]) : null;
-    } else {
-      const match = output.match(/time=([\d.]+) ms/);
-      return match ? parseFloat(match[1]) : null;
-    }
-  } catch (error) {
-    return null;
-  }
-}
-
-function setupWebSocket(options, logger) {
+function setupWebSocket(options, db, logger) {
   const wss = new WebSocket.Server(options);
+  const pingService = new PingService(db, logger);
 
   wss.on("connection", (ws) => {
     logger.info("New WebSocket connection");
 
-    // Store active intervals for cleanup
     ws.pingIntervals = new Set();
 
     ws.on("message", async (message) => {
@@ -55,21 +16,35 @@ function setupWebSocket(options, logger) {
         logger.debug("Received WebSocket message:", data);
 
         if (data.type === "start_ping" && data.ip) {
-          // Clear any existing intervals
+          // Clear existing intervals
           ws.pingIntervals.forEach((interval) => clearInterval(interval));
           ws.pingIntervals.clear();
 
           // Start new ping interval
           const interval = setInterval(async () => {
-            const result = await executePing(data.ip);
-            const response = {
-              type: "ping_result",
-              ip: data.ip,
-              ...result,
-            };
+            const result = await pingService.executePing(
+              data.ip,
+              data.packetSize
+            );
 
             if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify(response));
+              ws.send(
+                JSON.stringify({
+                  type: "ping_result",
+                  ...result,
+                })
+              );
+
+              // Send statistics every 10 pings
+              if (result.success) {
+                const stats = await pingService.getStatistics(data.ip);
+                ws.send(
+                  JSON.stringify({
+                    type: "statistics",
+                    ...stats,
+                  })
+                );
+              }
             }
           }, data.interval || 1000);
 
@@ -90,7 +65,6 @@ function setupWebSocket(options, logger) {
 
     ws.on("close", () => {
       logger.info("WebSocket connection closed");
-      // Clean up intervals
       ws.pingIntervals.forEach((interval) => clearInterval(interval));
       ws.pingIntervals.clear();
     });
@@ -103,6 +77,4 @@ function setupWebSocket(options, logger) {
   return wss;
 }
 
-module.exports = {
-  setupWebSocket,
-};
+module.exports = { setupWebSocket };

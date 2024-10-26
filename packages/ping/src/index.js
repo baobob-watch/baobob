@@ -96,6 +96,10 @@ class PingMonitor {
     this.app.use("/api/ping", router);
   }
 
+  getDatabase() {
+    return this.db;
+  }
+
   // async start() {
   //   if (!this.config.server?.port) {
   //     return;
@@ -145,7 +149,12 @@ class PingMonitor {
 
     try {
       this.server = http.createServer(this.app);
-      this.wss = setupWebSocket({ server: this.server }, this.logger);
+      // Pass both logger and database to setupWebSocket
+      this.wss = setupWebSocket(
+        { server: this.server },
+        this.db, // Pass database
+        this.logger // Pass logger
+      );
 
       this.server.listen(this.config.server.port, () => {
         this.logger.info(

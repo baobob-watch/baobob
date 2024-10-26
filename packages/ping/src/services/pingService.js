@@ -1,195 +1,196 @@
-// backend/src/services/pingService.js
 const { exec } = require("child_process");
 const util = require("util");
-const execPromise = util.promisify(exec);
-const logger = require("../utils/logger");
+const execAsync = util.promisify(exec);
 
 class PingService {
-  constructor(db) {
+  constructor(db, logger) {
     this.db = db;
+    this.logger = logger;
   }
 
-  async monitorHost(params, ws) {
-    const { ip, timeout, packetSize, duration } = params;
-    const startTime = Date.now();
-
-    // Validate IP/hostname
-    if (!ip) {
-      ws.send(
-        JSON.stringify({
-          type: "error",
-          message: "Invalid IP address or hostname",
-        })
-      );
-      return;
-    }
-
-    ws.send(
-      JSON.stringify({
-        type: "info",
-        message: `Started monitoring ${ip}`,
-      })
-    );
-
-    const interval = setInterval(async () => {
-      try {
-        const result = await this.execPing(ip);
-        const pingResult = {
-          ...result,
-          ip: ip, // Ensure IP is included
-          packetSize,
-          timeout,
-        };
-
-        await this.saveResult(pingResult);
-
-        ws.send(
-          JSON.stringify({
-            type: "ping",
-            timestamp: new Date(),
-            responseTime: result.responseTime,
-            success: result.success,
-            error: result.error,
-          })
-        );
-      } catch (error) {
-        logger.error("Ping execution error:", error);
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: error.message,
-          })
-        );
-      }
-
-      if (Date.now() - startTime >= duration) {
-        this.endMonitoring(ws, interval);
-      }
-    }, 1000);
-
-    // Store interval for cleanup
-    ws.pingInterval = interval;
-
-    // Clean up on WebSocket close
-    ws.on("close", () => {
-      if (ws.pingInterval) {
-        clearInterval(ws.pingInterval);
-      }
-    });
-  }
-
-  async execPing(host) {
+  async executePing(host, packetSize = 32) {
     try {
-      // Use different commands based on platform
-      const cmd =
+      const command =
         process.platform === "win32"
-          ? `ping -n 1 ${host}`
-          : `ping -c 1 ${host}`;
+          ? `ping -n 1 -l ${packetSize} ${host}`
+          : `ping -c 1 -s ${packetSize} ${host}`;
 
-      const { stdout, stderr } = await execPromise(cmd);
+      const { stdout } = await execAsync(command);
+      const responseTime = this.parsePingOutput(stdout);
 
-      if (stderr) {
-        logger.error("Ping stderr:", stderr);
-        return {
-          success: false,
-          responseTime: null,
-          error: stderr,
-        };
-      }
-
-      // Parse the ping output based on platform
-      const time = this.parsePingOutput(stdout);
-
-      return {
-        success: true,
-        responseTime: time,
-        output: stdout,
+      const result = {
+        timestamp: new Date(),
+        ip: host,
+        responseTime,
+        packetSize,
+        success: responseTime !== null,
       };
+
+      // Save result to database
+      await this.savePingResult(result);
+
+      return result;
     } catch (error) {
-      logger.error("Ping execution failed:", error);
-      return {
-        success: false,
+      const result = {
+        timestamp: new Date(),
+        ip: host,
         responseTime: null,
+        packetSize,
+        success: false,
         error: error.message,
       };
+
+      // Save failed result to database
+      await this.savePingResult(result);
+
+      return result;
     }
   }
 
   parsePingOutput(output) {
     try {
       if (process.platform === "win32") {
-        // Parse Windows ping output
         const match = output.match(/time[=<](\d+)ms/);
         return match ? parseFloat(match[1]) : null;
       } else {
-        // Parse Unix ping output
-        const match = output.match(/time=(\d+\.?\d*) ms/);
+        const match = output.match(/time=([\d.]+) ms/);
         return match ? parseFloat(match[1]) : null;
       }
     } catch (error) {
-      logger.error("Error parsing ping output:", error);
       return null;
     }
   }
 
-  async saveResult(result) {
+  async savePingResult(result) {
     try {
-      // Log the result object for debugging
-      logger.debug("Saving ping result:", result);
-
-      // Validate required fields
-      if (!result.ip) {
-        throw new Error("IP address is required for saving ping result");
-      }
-
       await this.db.run(
         `
                 INSERT INTO ping_results (
-                    ip, response_time, packet_size, timeout, success
+                    timestamp,
+                    ip,
+                    response_time,
+                    packet_size,
+                    success
                 ) VALUES (?, ?, ?, ?, ?)
             `,
         [
+          result.timestamp.toISOString(),
           result.ip,
           result.responseTime,
           result.packetSize,
-          result.timeout,
           result.success ? 1 : 0,
         ]
       );
+
+      this.logger.debug("Ping result saved to database:", result);
     } catch (error) {
-      logger.error("Error saving ping result:", error, "Result:", result);
-      // Don't throw the error to prevent stopping the monitoring
+      this.logger.error("Error saving ping result:", error);
+      throw error;
     }
   }
 
-  endMonitoring(ws, interval) {
-    clearInterval(interval);
-    ws.send(
-      JSON.stringify({
-        type: "info",
-        message: "Monitoring finished",
-      })
-    );
-  }
+  async getHistory(options = {}) {
+    const {
+      ip = null,
+      limit = 1000,
+      offset = 0,
+      startTime = null,
+      endTime = null,
+    } = options;
 
-  async getHistory() {
     try {
-      return await this.db.all(`
+      let query = `
                 SELECT 
                     timestamp,
                     ip,
                     response_time as responseTime,
                     packet_size as packetSize,
-                    timeout,
                     success
-                FROM ping_results 
-                WHERE response_time IS NOT NULL
+                FROM ping_results
+                WHERE 1=1
+            `;
+      const params = [];
+
+      if (ip) {
+        query += " AND ip = ?";
+        params.push(ip);
+      }
+
+      if (startTime) {
+        query += " AND timestamp >= ?";
+        params.push(startTime.toISOString());
+      }
+
+      if (endTime) {
+        query += " AND timestamp <= ?";
+        params.push(endTime.toISOString());
+      }
+
+      query += ` 
                 ORDER BY timestamp DESC 
-                LIMIT 1000
-            `);
+                LIMIT ? OFFSET ?
+            `;
+      params.push(limit, offset);
+
+      const results = await this.db.all(query, params);
+      return results.map((result) => ({
+        ...result,
+        timestamp: new Date(result.timestamp),
+      }));
     } catch (error) {
-      logger.error("Error fetching ping history:", error);
-      return [];
+      this.logger.error("Error fetching ping history:", error);
+      throw error;
+    }
+  }
+
+  async getStatistics(ip, timeRange = "1h") {
+    try {
+      const timeConstraint = this.getTimeConstraint(timeRange);
+
+      const stats = await this.db.get(
+        `
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful,
+                    MIN(CASE WHEN success = 1 THEN response_time END) as min_time,
+                    MAX(CASE WHEN success = 1 THEN response_time END) as max_time,
+                    AVG(CASE WHEN success = 1 THEN response_time END) as avg_time,
+                    (CAST(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS FLOAT) / 
+                     COUNT(*) * 100.0) as packet_loss
+                FROM ping_results
+                WHERE ip = ?
+                AND timestamp >= datetime('now', ?)
+            `,
+        [ip, timeConstraint]
+      );
+
+      return {
+        totalPings: stats.total,
+        successfulPings: stats.successful,
+        failedPings: stats.total - stats.successful,
+        minResponseTime: stats.min_time,
+        maxResponseTime: stats.max_time,
+        avgResponseTime: stats.avg_time,
+        packetLoss: stats.packet_loss,
+      };
+    } catch (error) {
+      this.logger.error("Error fetching ping statistics:", error);
+      throw error;
+    }
+  }
+
+  getTimeConstraint(timeRange) {
+    switch (timeRange) {
+      case "1h":
+        return "-1 hour";
+      case "24h":
+        return "-24 hours";
+      case "7d":
+        return "-7 days";
+      case "30d":
+        return "-30 days";
+      default:
+        return "-1 hour";
     }
   }
 }

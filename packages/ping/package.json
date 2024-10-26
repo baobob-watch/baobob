@@ -15,10 +15,16 @@
     "clean:test": "rimraf test-data test-logs"
   },
   "author": "innocentwkc",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/baobob-watch/baobob.git"
+  },
   "license": "ISC",
   "files": [
-    "src",
-    "public"
+    "docs",
+    "examples",
+    "public",
+    "src"
   ],
   "dependencies": {
     "express": "^4.18.2",

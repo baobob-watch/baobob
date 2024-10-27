@@ -1,8 +1,4 @@
-# Changes
-
-
-## 1.0.0
-- Project init (pendindg docs)
+# Changelog for *@baobob/ping*
 
 ## 1.0.1
 
@@ -18,3 +14,6 @@
 - Fixed race conditions in shutdown
 - Added error handling for message parsing
 - Better status reporting
+- 
+## 1.0.0
+- Project init (pendindg docs)

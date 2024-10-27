@@ -1,0 +1,16 @@
+{
+  "name": "@baobob/qr",
+  "version": "1.0.0",
+  "description": "QR code generator and tagging for network devices",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "npm run test"
+  },
+  "keywords": [
+    "qrcode",
+    "qr",
+    "networ tag"
+  ],
+  "author": "innocentwkc",
+  "license": "MIT"
+}
